@@ -96,9 +96,13 @@ func (c *lruCache) PutWithExpiration(key string, value Value, expr time.Duration
 	// 如果缓存映射中存在 更新
 	if elem, ok := c.cacheMap[key]; ok {
 		entry := elem.Value.(*lruEntry)
-		c.usedBytes += int64(value.Len() - entry.value.Len())
+		oldLen := entry.value.Len()
+		c.usedBytes += int64(value.Len() - oldLen)
 		entry.value = value
 		c.list.MoveToFront(elem)
+		if value.Len() > oldLen {
+			c.evict()
+		}
 		return nil
 	}
 	// 如果是新添加的键值对
