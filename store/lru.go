@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	DefaultRLUCleanupGap = 10 * time.Second  // 单位 s
-	DefaultRLUMaxBytes   = 128 * 1024 * 1024 // 128 MB
+	DefaultLRUCleanupGap = 30 * time.Second
 )
 
 // lruCache LRU缓存 基于hash表 + 双向链表实现
@@ -33,24 +32,22 @@ type lruEntry struct {
 // newLRUCache 创建一个新的LRU缓存实例
 func newLRUCache(opts Options) *lruCache {
 	cleanupGap := opts.CleanupGap
-	maxBytes := opts.MaxBytes
 	if opts.CleanupGap <= 0 {
-		cleanupGap = DefaultRLUCleanupGap
-	}
-	if opts.MaxBytes <= 0 {
-		maxBytes = DefaultRLUMaxBytes
+		cleanupGap = DefaultLRUCleanupGap
 	}
 	c := &lruCache{
-		list:          list.New(),
-		cacheMap:      make(map[string]*list.Element),
-		exprMap:       make(map[string]time.Time),
-		maxBytes:      maxBytes,
-		usedBytes:     0,
-		onEvicted:     opts.OnEvicted,
-		cleanupGap:    cleanupGap,
-		cleanupTicker: time.NewTicker(cleanupGap),
-		closeCh:       make(chan struct{}),
+		list:       list.New(),
+		cacheMap:   make(map[string]*list.Element),
+		exprMap:    make(map[string]time.Time),
+		maxBytes:   opts.MaxBytes,
+		usedBytes:  0,
+		onEvicted:  opts.OnEvicted,
+		cleanupGap: cleanupGap,
+		closeCh:    make(chan struct{}),
 	}
+	// 启动定期清理过期缓存的协程
+	c.cleanupTicker = time.NewTicker(cleanupGap)
+	go c.cleaner()
 	return c
 }
 
@@ -84,6 +81,10 @@ func (c *lruCache) Put(key string, value Value) error {
 }
 
 func (c *lruCache) PutWithExpiration(key string, value Value, expr time.Duration) error {
+	if value == nil {
+		c.Delete(key)
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// 过期时间设置为大于0才被视为有效
@@ -107,7 +108,7 @@ func (c *lruCache) PutWithExpiration(key string, value Value, expr time.Duration
 	}
 	elem := c.list.PushFront(entry)
 	c.cacheMap[key] = elem
-	c.usedBytes += int64(len([]byte(key)) + value.Len())
+	c.usedBytes += int64(len(key) + value.Len())
 	// 添加完新项后 检查usedBytes是否变大导致需要淘汰旧项
 	c.evict()
 	return nil
@@ -126,17 +127,31 @@ func (c *lruCache) Delete(key string) bool {
 func (c *lruCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
+	// 如果有回调函数 先调用所有回调函数
+	if c.onEvicted != nil {
+		for _, elem := range c.cacheMap {
+			entry := elem.Value.(*lruEntry)
+			c.onEvicted(entry.key, entry.value)
+		}
+	}
+	// 删除所有缓存
+	c.list.Init()
+	c.cacheMap = make(map[string]*list.Element)
+	c.exprMap = make(map[string]time.Time)
+	c.usedBytes = 0
 }
 
 func (c *lruCache) Len() int {
-	//TODO implement me
-	panic("implement me")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.list.Len()
 }
 
 func (c *lruCache) Close() {
-	//TODO implement me
-	panic("implement me")
+	if c.cleanupTicker != nil {
+		c.cleanupTicker.Stop()
+		close(c.closeCh)
+	}
 }
 
 /* 辅助函数 */
@@ -146,7 +161,7 @@ func (c *lruCache) removeElem(elem *list.Element) {
 	delete(c.cacheMap, entry.key)
 	delete(c.exprMap, entry.key)
 	c.list.Remove(elem)
-	c.usedBytes -= int64(len([]byte(entry.key)) + entry.value.Len())
+	c.usedBytes -= int64(len(entry.key) + entry.value.Len())
 	if c.onEvicted != nil {
 		c.onEvicted(entry.key, entry.value)
 	}
@@ -170,5 +185,100 @@ func (c *lruCache) evict() {
 		if oldElem != nil {
 			c.removeElem(oldElem)
 		}
+	}
+}
+
+/* 常驻任务 */
+// 定期清理过期的缓存 该协程常驻 启用时需确保cleanupTicker非空
+func (c *lruCache) cleaner() {
+	for {
+		select {
+		case <-c.cleanupTicker.C:
+			c.mu.Lock()
+			c.evict()
+			c.mu.Unlock()
+		case <-c.closeCh:
+			return
+		}
+	}
+}
+
+/* 非接口方法 */
+// GetWithExpiration 获取缓存项及剩余过期时间
+func (c *lruCache) GetWithExpiration(key string) (Value, time.Duration, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// 获取缓存
+	elem, ok := c.cacheMap[key]
+	if !ok {
+		return nil, -1, false
+	}
+	entry := elem.Value.(*lruEntry)
+	// 检查过期情况(如果设置了过期时间)
+	now := time.Now()
+	if t, ok := c.exprMap[key]; ok {
+		// 有过期时间
+		if now.After(t) {
+			// 过期了 删除缓存
+			c.removeElem(elem)
+			return nil, -1, false
+		} else {
+			// 没过期 计算剩余过期时间
+			sub := t.Sub(now)
+			c.list.MoveToFront(elem)
+			return entry.value, sub, true
+		}
+	}
+	// 没有过期时间
+	c.list.MoveToFront(elem)
+	return entry.value, -1, true
+}
+
+// GetExpiration 获取过期时间
+func (c *lruCache) GetExpiration(key string) (time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.exprMap[key]
+	return t, ok
+}
+
+// UpdateExpiration 更新过期时间为expiration 如果expiration <= 0表示设置无限长的过期时间
+func (c *lruCache) UpdateExpiration(key string, expiration time.Duration) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.exprMap[key]
+	if !ok {
+		return false
+	}
+	if expiration <= 0 {
+		delete(c.exprMap, key)
+	} else {
+		c.exprMap[key] = time.Now().Add(expiration)
+	}
+	return true
+}
+
+// GetUsedBytes 返回当前缓存大小
+func (c *lruCache) GetUsedBytes() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.usedBytes
+}
+
+// GetMaxBytes 返回最大缓存大小
+func (c *lruCache) GetMaxBytes() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxBytes
+}
+
+// SetMaxBytes 设置最大缓存大小
+func (c *lruCache) SetMaxBytes(maxBytes int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxBytes = maxBytes
+	// 可能最大缓存变小了 触发淘汰
+	if maxBytes > 0 && c.usedBytes > maxBytes {
+		c.evict()
 	}
 }
