@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	DefaultLRUCleanupGap = 30 * time.Second
+	DefaultLRUCleanupGap = 1 * time.Minute
 )
 
 // lruCache LRU缓存 基于hash表 + 双向链表实现
@@ -76,8 +76,8 @@ func (c *lruCache) Get(key string) (Value, bool) {
 }
 
 func (c *lruCache) Put(key string, value Value) error {
-	// -1 表示无限长的过期时间
-	return c.PutWithExpiration(key, value, -1)
+	// 0 表示无限长的过期时间
+	return c.PutWithExpiration(key, value, 0)
 }
 
 func (c *lruCache) PutWithExpiration(key string, value Value, expr time.Duration) error {
@@ -215,7 +215,7 @@ func (c *lruCache) GetWithExpiration(key string) (Value, time.Duration, bool) {
 	// 获取缓存
 	elem, ok := c.cacheMap[key]
 	if !ok {
-		return nil, -1, false
+		return nil, 0, false
 	}
 	entry := elem.Value.(*lruEntry)
 	// 检查过期情况(如果设置了过期时间)
@@ -225,7 +225,7 @@ func (c *lruCache) GetWithExpiration(key string) (Value, time.Duration, bool) {
 		if now.After(t) {
 			// 过期了 删除缓存
 			c.removeElem(elem)
-			return nil, -1, false
+			return nil, 0, false
 		} else {
 			// 没过期 计算剩余过期时间
 			sub := t.Sub(now)
@@ -235,7 +235,7 @@ func (c *lruCache) GetWithExpiration(key string) (Value, time.Duration, bool) {
 	}
 	// 没有过期时间
 	c.list.MoveToFront(elem)
-	return entry.value, -1, true
+	return entry.value, 0, true
 }
 
 // GetExpiration 获取过期时间

@@ -36,4 +36,9 @@ type Options struct {
 	MaxBytes   int64
 	CleanupGap time.Duration
 	OnEvicted  func(key string, value Value)
+
+	// lru2
+	BucketCount  uint16
+	CapPerBucket uint16
+	Level2Cap    uint16
 }
