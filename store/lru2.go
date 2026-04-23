@@ -65,10 +65,19 @@ func newLRU2Cache(opts Options) *lru2Cache {
 		s.caches[i][1] = newCache(opts.Level2Cap)
 	}
 	if opts.CleanupGap > 0 {
-		// TODO 实现 cleaner
 		go s.cleaner()
 	}
 	return s
+}
+
+/* 全局日志 */
+var enablePrintLog = false
+
+func printLog(s string) {
+	if !enablePrintLog {
+		return
+	}
+	fmt.Println(s)
 }
 
 /* 全局时钟 */
@@ -108,12 +117,12 @@ func (s *lru2Cache) Get(key string) (Value, bool) {
 		if exprAt > 0 && now >= exprAt {
 			// 项目已过期 删除
 			s.delete(key, index)
-			fmt.Println("找到项目已过期，删除")
+			printLog("找到项目已过期，删除")
 			return nil, false
 		}
 		// 项目有效 移动到二级缓存
 		s.caches[index][1].put(key, node1.value, exprAt, s.onEvicted)
-		fmt.Println("项目有效，移动到二级缓存")
+		printLog("项目有效，移动到二级缓存")
 		return node1.value, true
 	}
 	// 一级缓存未查到 查看二级缓存
@@ -122,7 +131,7 @@ func (s *lru2Cache) Get(key string) (Value, bool) {
 		if node2.exprAt > 0 && now >= node2.exprAt {
 			// 项目已过期 删除
 			s.delete(key, index)
-			fmt.Println("找到项目已过期，删除")
+			printLog("找到项目已过期，删除")
 			return nil, false
 		}
 		return node2.value, true

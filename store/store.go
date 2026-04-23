@@ -27,7 +27,7 @@ type Store interface {
 	// Len 获取缓存值数量长度
 	Len() int
 
-	// Close TODO
+	// Close 关闭缓存
 	Close()
 }
 
