@@ -86,7 +86,7 @@ func WithCacheOptions(opts CacheOptions) GroupOption {
 	}
 }
 
-/* 实现 Peer 接口 */
+/* 实现基础接口 */
 
 // NewGroup 创建新的 Group 实例
 func NewGroup(name string, cacheBytes int64, getter Getter, opts ...GroupOption) *Group {
