@@ -1,6 +1,9 @@
 package goch
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // PeerPicker 定义了peer选择器的接口
 type PeerPicker interface {
@@ -14,4 +17,12 @@ type Peer interface {
 	Put(ctx context.Context, group string, key string, value []byte) error
 	Delete(group string, key string) (bool, error)
 	Close() error
+}
+
+// ClientPicker 该结构体实现了 PeerPicker 接口
+type ClientPicker struct {
+	selfAddr string
+	svcName  string
+	mu       sync.Mutex
+	// TODO 补充剩余字段
 }
