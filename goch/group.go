@@ -227,6 +227,88 @@ func (g *Group) Close() error {
 	return nil
 }
 
+// RegisterPeers 注册PeerPicker
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeers called more than once")
+	}
+	g.peers = peers
+	logrus.Infof("[GoCache] registered peers for group [%s]", g.name)
+}
+
+// Stats 返回缓存组统计信息
+func (g *Group) Stats() map[string]interface{} {
+	stats := map[string]interface{}{
+		"name":          g.name,
+		"closed":        atomic.LoadInt32(&g.closed) == 1,
+		"expr":          g.expr,
+		"loads":         atomic.LoadInt64(&g.stats.loads),
+		"local_hits":    atomic.LoadInt64(&g.stats.localHits),
+		"local_misses":  atomic.LoadInt64(&g.stats.localMisses),
+		"peer_hits":     atomic.LoadInt64(&g.stats.peerHits),
+		"peer_misses":   atomic.LoadInt64(&g.stats.peerMisses),
+		"loader_hits":   atomic.LoadInt64(&g.stats.loaderHits),
+		"loader_errors": atomic.LoadInt64(&g.stats.loaderErrors),
+		"load_duration": atomic.LoadInt64(&g.stats.loadDuration),
+	}
+	// 计算命中率
+	totalGets := stats["local_hits"].(int64) + stats["local_misses"].(int64)
+	if totalGets > 0 {
+		stats["hit_rate"] = float64(stats["local_hits"].(int64)) / float64(totalGets)
+	}
+	totalLoads := stats["loads"].(int64)
+	if totalLoads > 0 {
+		stats["avg_load_time_ms"] = (float64(stats["load_duration"].(int64)) / float64(totalLoads)) / float64(time.Millisecond)
+	}
+	// 添加缓存大小
+	if g.mainCache != nil {
+		cacheStats := g.mainCache.Stats()
+		for k, v := range cacheStats {
+			stats["cache_"+k] = v
+		}
+	}
+	return stats
+}
+
+// ListGroups 返回所有缓存组的名称
+func ListGroups() []string {
+	mu.Lock()
+	defer mu.Unlock()
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	return names
+}
+
+// DestroyGroup 销毁指定名称的缓存组
+func DestroyGroup(name string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	// 缓存组存在才销毁
+	if g, ok := groups[name]; ok {
+		// 关闭缓存组
+		g.Close()
+		// 在全局映射中删除缓存组
+		delete(groups, name)
+		logrus.Infof("[GoCache] destroyed cache group [%s]", name)
+		return true
+	}
+	// 缓存组不存在返回false
+	return false
+}
+
+// DestroyAllGroups 销毁所有缓存组
+func DestroyAllGroups() {
+	mu.Lock()
+	defer mu.Unlock()
+	for name, g := range groups {
+		g.Close()
+		delete(groups, name)
+		logrus.Infof("[GoCache] destroyed cache group [%s]", name)
+	}
+}
+
 /* 辅助函数 */
 // load 加载数据
 // 调用 loadData 加载数据 再写回本地缓存

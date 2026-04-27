@@ -184,6 +184,42 @@ func (c *Cache) Close() {
 	logrus.Debugf("cache closed, hits: %d, misses: %d", atomic.LoadInt64(&c.hits), atomic.LoadInt64(&c.misses))
 }
 
+// Len 返回当前缓存的储存项数量
+func (c *Cache) Len() int {
+	// 检查本地缓存是否关闭
+	if atomic.LoadInt32(&c.closed) == 1 {
+		return 0
+	}
+	// 如果缓存未初始化，直接返回
+	if atomic.LoadInt32(&c.initialized) == 0 {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.store.Len()
+}
+
+// Stats 返回本地缓存统计信息
+func (c *Cache) Stats() map[string]interface{} {
+	stats := map[string]interface{}{
+		"initialized": atomic.LoadInt32(&c.initialized) == 1,
+		"closed":      atomic.LoadInt32(&c.closed) == 1,
+		"hits":        atomic.LoadInt64(&c.hits),
+		"misses":      atomic.LoadInt64(&c.misses),
+	}
+	if atomic.LoadInt32(&c.initialized) == 1 {
+		stats["size"] = c.Len()
+		// 计算命中率
+		totalRequests := stats["hits"].(int64) + stats["misses"].(int64)
+		if totalRequests > 0 {
+			stats["hit_rate"] = float64(stats["hits"].(int64)) / float64(totalRequests)
+		} else {
+			stats["hit_rate"] = 0.0
+		}
+	}
+	return stats
+}
+
 /* 辅助函数 */
 // ensureInitialized 检查缓存是否初始化
 // 如果已经初始化就直接返回
