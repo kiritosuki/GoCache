@@ -3,6 +3,7 @@ package consistenthash
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -10,7 +11,8 @@ import (
 )
 
 const (
-	BalanceGap = time.Second
+	BalanceGap             = time.Second
+	TotalRequestsThreshold = 1000 // 请求数超过此才会触发节点调整
 )
 
 type Map struct {
@@ -77,25 +79,7 @@ func (m *Map) Remove(node string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	replicas := m.nodeReplicas[node]
-	if replicas == 0 {
-		return fmt.Errorf("node %s not found", node)
-	}
-	// 移除该节点的所有虚拟节点
-	for i := 0; i < replicas; i++ {
-		hash := int(m.config.HashFunc([]byte(fmt.Sprintf("%s-%d", node, i))))
-		delete(m.hashMap, hash)
-		// 删除keys中的哈希值
-		for j := 0; j < len(m.hashList); j++ {
-			if m.hashList[j] == hash {
-				m.hashList = append(m.hashList[:j], m.hashList[(j+1):]...)
-				break
-			}
-		}
-	}
-	delete(m.nodeReplicas, node)
-	delete(m.nodeCounts, node)
-	return nil
+	return m.remove(node)
 }
 
 // Get 根据key获取节点
@@ -128,7 +112,7 @@ func (m *Map) Get(key string) string {
 	return node
 }
 
-// GetStats 获取负载统计信息
+// GetStats 获取负载统计信息 请求命中各个节点的百分比
 func (m *Map) GetStats() map[string]float64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -158,9 +142,103 @@ func (m *Map) addNode(node string, replicas int) {
 	m.nodeReplicas[node] = replicas
 }
 
+// Remove 移除节点
+func (m *Map) remove(node string) error {
+	if node == "" {
+		return errors.New("invalid node")
+	}
+	replicas := m.nodeReplicas[node]
+	if replicas == 0 {
+		return fmt.Errorf("node %s not found", node)
+	}
+	// 移除该节点的所有虚拟节点
+	for i := 0; i < replicas; i++ {
+		hash := int(m.config.HashFunc([]byte(fmt.Sprintf("%s-%d", node, i))))
+		delete(m.hashMap, hash)
+		// 删除keys中的哈希值
+		for j := 0; j < len(m.hashList); j++ {
+			if m.hashList[j] == hash {
+				m.hashList = append(m.hashList[:j], m.hashList[(j+1):]...)
+				break
+			}
+		}
+	}
+	delete(m.nodeReplicas, node)
+	delete(m.nodeCounts, node)
+	return nil
+}
+
 /* 后台协程 负载均衡器 */
 func (m *Map) startBalancer() {
 	go func() {
 		ticker := time.NewTicker(BalanceGap)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.checkAndRebalance()
+		}
 	}()
+}
+
+// checkAndRebalance 检查并重新平衡虚拟节点
+func (m *Map) checkAndRebalance() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.totalRequests < TotalRequestsThreshold {
+		// 请求数太少 不进行平衡
+		return
+	}
+	// 计算负载情况
+	// 平均每个节点平均命中次数
+	avgLoad := float64(m.totalRequests) / float64(len(m.nodeReplicas))
+	var maxDiff float64
+	for _, count := range m.nodeCounts {
+		// 计算每个节点实际命中次数与平均命中次数差值
+		diff := math.Abs(float64(count) - avgLoad)
+		if diff/avgLoad > maxDiff {
+			maxDiff = diff / avgLoad
+		}
+	}
+	// 如果负载不平衡程度超过负载均衡阈值 触发虚拟节点调整
+	if maxDiff > m.config.LoadBalanceThreshold {
+		m.rebalanceNodes(avgLoad)
+	}
+}
+
+// rebalanceNodes 重新平衡虚拟节点
+func (m *Map) rebalanceNodes(avgLoad float64) {
+	// 调整每个节点的虚拟节点数量
+	for node, count := range m.nodeCounts {
+		currReplicas := m.nodeReplicas[node]
+		loadRatio := float64(count) / avgLoad
+		var newReplicas int
+		if loadRatio > 1 {
+			// 负载过高 减少虚拟节点
+			newReplicas = int(float64(currReplicas) / loadRatio)
+		} else {
+			// 负载过低 增加虚拟节点
+			newReplicas = int(float64(currReplicas) * (2 - loadRatio))
+		}
+		// 确保在限定范围内
+		if newReplicas < m.config.MinReplicas {
+			newReplicas = m.config.MinReplicas
+		}
+		if newReplicas > m.config.MaxReplicas {
+			newReplicas = m.config.MaxReplicas
+		}
+		if newReplicas != currReplicas {
+			// 重新添加节点的虚拟节点
+			if err := m.remove(node); err != nil {
+				// 如果移除失败 就跳过该节点
+				continue
+			}
+			m.addNode(node, newReplicas)
+		}
+	}
+	// 重置计数器
+	for node := range m.nodeCounts {
+		m.nodeCounts[node] = 0
+	}
+	m.totalRequests = 0
+	// 重新排序
+	sort.Ints(m.hashList)
 }
