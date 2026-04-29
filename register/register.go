@@ -16,13 +16,13 @@ const (
 	RevokeLeaseContextTimeout = 3 * time.Second
 )
 
-// Config 定义etcd服务端配置
+// Config 定义etcd客户端配置
 type Config struct {
 	EndPoints   []string      // etcd集群地址
 	DialTimeout time.Duration // 连接超时时间
 }
 
-// DefaultConfig 提供etcd服务端默认配置
+// DefaultConfig 提供etcd客户端默认配置
 var DefaultConfig = &Config{
 	EndPoints:   []string{"localhost:2379"},
 	DialTimeout: DefaultEtcdDialTimeout,
