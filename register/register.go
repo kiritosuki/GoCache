@@ -6,12 +6,14 @@ import (
 	"net"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 const (
-	DefaultEtcdDialTimeout = 5 * time.Second
-	DefaultEtcdLeaseTime   = 10 // 单位: s
+	DefaultEtcdDialTimeout    = 5 * time.Second
+	DefaultEtcdLeaseTime      = 10 // 单位: s
+	RevokeLeaseContextTimeout = 3 * time.Second
 )
 
 // Config 定义etcd服务端配置
@@ -71,14 +73,21 @@ func Register(svcName string, addr string, stopCh <-chan error) error {
 			select {
 			case <-stopCh:
 				// 服务注销 撤销租约
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), RevokeLeaseContextTimeout)
 				cli.Revoke(ctx, lease.ID)
 				cancel()
 				return
-			case
+			case resp, ok := <-keepAliveCh:
+				if !ok {
+					logrus.Warn("keep alive channel closed")
+					return
+				}
+				logrus.Debugf("successfully renewed lease: %d", resp.ID)
 			}
 		}
 	}()
+	logrus.Infof("service registered: %s at %s", svcName, addr)
+	return nil
 }
 
 /* 辅助函数 */
