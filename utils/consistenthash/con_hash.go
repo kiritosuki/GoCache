@@ -46,7 +46,6 @@ func New(opts ...Option) *Map {
 	for _, opt := range opts {
 		opt(m)
 	}
-	// TODO 实现负载均衡器
 	m.startBalancer() // 启动负载均衡器
 	return m
 }

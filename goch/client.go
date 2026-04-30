@@ -74,7 +74,7 @@ func (c *Client) Get(group string, key string) ([]byte, error) {
 		Key:   key,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get value from GoCache: %v", err)
+		return nil, fmt.Errorf("failed to get value from GoCache: %w", err)
 	}
 	return resp.GetValue(), nil
 }
@@ -87,7 +87,7 @@ func (c *Client) Delete(group string, key string) (bool, error) {
 		Key:   key,
 	})
 	if err != nil {
-		return false, fmt.Errorf("failed to delete value from GoCache: %v", err)
+		return false, fmt.Errorf("failed to delete value from GoCache: %w", err)
 	}
 	return resp.GetValue(), nil
 }
