@@ -232,7 +232,7 @@ func (c *Cache) ensureInitialized() {
 	// 初始化缓存
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.initialized == 0 {
+	if atomic.LoadInt32(&c.initialized) == 0 {
 		// 创建store选项
 		storeOpts := store.Options{
 			MaxBytes:     c.opts.MaxBytes,

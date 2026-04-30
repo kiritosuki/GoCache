@@ -284,16 +284,17 @@ func ListGroups() []string {
 // DestroyGroup 销毁指定名称的缓存组
 func DestroyGroup(name string) bool {
 	mu.Lock()
-	defer mu.Unlock()
 	// 缓存组存在才销毁
 	if g, ok := groups[name]; ok {
-		// 关闭缓存组
-		g.Close()
 		// 在全局映射中删除缓存组
 		delete(groups, name)
+		mu.Unlock()
+		// 关闭缓存组
+		g.Close()
 		logrus.Infof("[GoCache] destroyed cache group [%s]", name)
 		return true
 	}
+	mu.Unlock()
 	// 缓存组不存在返回false
 	return false
 }
@@ -301,11 +302,15 @@ func DestroyGroup(name string) bool {
 // DestroyAllGroups 销毁所有缓存组
 func DestroyAllGroups() {
 	mu.Lock()
-	defer mu.Unlock()
+	closingGroups := make([]*Group, 0, len(groups))
 	for name, g := range groups {
-		g.Close()
+		closingGroups = append(closingGroups, g)
 		delete(groups, name)
-		logrus.Infof("[GoCache] destroyed cache group [%s]", name)
+		logrus.Infof("[GoCache] destroying cache group [%s]", name)
+	}
+	mu.Unlock()
+	for _, g := range closingGroups {
+		g.Close()
 	}
 }
 

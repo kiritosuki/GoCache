@@ -79,6 +79,12 @@ func NewClientPicker(addr string, opts ...PickerOption) (*ClientPicker, error) {
 	for _, opt := range opts {
 		opt(picker)
 	}
+	// 当前节点也必须在一致性哈希环上。PickPeer 命中自身时返回 isSelf=true，
+	// Group 会直接使用本地 getter，避免节点之间在缓存未命中时互相转发。
+	if err := picker.consHash.Add(addr); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to add self to consistent hash: %w", err)
+	}
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   register.DefaultConfig.EndPoints,
 		DialTimeout: register.DefaultConfig.DialTimeout,
@@ -114,9 +120,12 @@ func (p *ClientPicker) PickPeer(key string) (Peer, bool, bool) {
 	defer p.mu.Unlock()
 	// 找到key对应的真实节点addr
 	if addr := p.consHash.Get(key); addr != "" {
+		if addr == p.selfAddr {
+			return nil, true, true
+		}
 		if client, ok := p.clients[addr]; ok {
 			// 根据addr映射找到服务实例client
-			return client, true, addr == p.selfAddr
+			return client, true, false
 		}
 	}
 	return nil, false, false
@@ -130,7 +139,7 @@ func (p *ClientPicker) Close() error {
 	var errs []error
 	for addr, client := range p.clients {
 		if err := client.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close client %s: %w", addr, errs))
+			errs = append(errs, fmt.Errorf("failed to close client %s: %w", addr, err))
 		}
 	}
 	if err := p.etcdCli.Close(); err != nil {

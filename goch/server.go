@@ -82,9 +82,9 @@ func WithTLS(certFile string, keyFile string) ServerOption {
 
 // NewServer 创建缓存服务器实例
 func NewServer(addr string, serviceName string, opts ...ServerOption) (*Server, error) {
-	options := DefaultServerOptions
+	options := *DefaultServerOptions
 	for _, opt := range opts {
-		opt(options)
+		opt(&options)
 	}
 	// 创建etcd客户端
 	etcdCli, err := clientv3.New(clientv3.Config{
@@ -117,7 +117,7 @@ func NewServer(addr string, serviceName string, opts ...ServerOption) (*Server, 
 		grpcServer:  grpcServer,
 		etcdCli:     etcdCli,
 		stopCh:      make(chan error),
-		opts:        options,
+		opts:        &options,
 	}
 
 	// 注册服务
@@ -193,6 +193,9 @@ func (s *Server) Delete(ctx context.Context, req *pb.Request) (*pb.ResponseForDe
 	group := GetGroup(req.Group)
 	if group == nil {
 		return nil, fmt.Errorf("group %s not found", req.Group)
+	}
+	if ctx.Value("from_peer") == nil {
+		ctx = context.WithValue(ctx, "from_peer", true)
 	}
 	err := group.Delete(ctx, req.Key)
 	return &pb.ResponseForDelete{Value: err == nil}, err
