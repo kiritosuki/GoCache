@@ -154,7 +154,7 @@ func (m *Map) remove(node string) error {
 	for i := 0; i < replicas; i++ {
 		hash := int(m.config.HashFunc([]byte(fmt.Sprintf("%s-%d", node, i))))
 		delete(m.hashMap, hash)
-		// 删除keys中的哈希值
+		// 删除hashList中的哈希值
 		for j := 0; j < len(m.hashList); j++ {
 			if m.hashList[j] == hash {
 				m.hashList = append(m.hashList[:j], m.hashList[(j+1):]...)

@@ -29,10 +29,10 @@ type Server struct {
 	pb.UnimplementedGoCacheServer
 	addr        string            // 服务地址
 	serviceName string            // 服务名称
-	mu          sync.Mutex        // 互斥锁
-	groups      map[string]*Group // 缓存组
+	mu          sync.Mutex        // 互斥锁	TODO 实际业务逻辑中暂时没用
+	groups      map[string]*Group // 缓存组 	TODO 实际业务逻辑中暂时没用
 	grpcServer  *grpc.Server      // grpc服务器
-	etcdCli     *clientv3.Client  // etcd客户端
+	etcdCli     *clientv3.Client  // etcd客户端	TODO 实际业务逻辑中暂时没用
 	stopCh      chan error        // 停止信号
 	opts        *ServerOptions    // 服务器选项
 }
@@ -87,6 +87,7 @@ func NewServer(addr string, serviceName string, opts ...ServerOption) (*Server, 
 		opt(&options)
 	}
 	// 创建etcd客户端
+	// TODO 实际注册etcd是用register中的全局注册方法 这里暂时没用
 	etcdCli, err := clientv3.New(clientv3.Config{
 		Endpoints:   options.EtcdEndpoints,
 		DialTimeout: options.DialTimeout,
