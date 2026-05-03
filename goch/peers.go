@@ -115,6 +115,7 @@ func (p *ClientPicker) startServiceDiscovery() error {
 }
 
 // PickPeer 选择peer节点
+// 返回值: peer, ok ,isSelf
 func (p *ClientPicker) PickPeer(key string) (Peer, bool, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

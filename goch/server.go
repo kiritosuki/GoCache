@@ -176,7 +176,7 @@ func (s *Server) Put(ctx context.Context, req *pb.Request) (*pb.ResponseForGet, 
 	// 这里是因为 Server的方法是通过grpc暴露的
 	// 也就是这里的Server接口实际上是给peer远程调用使用的 而不是用户调用
 	// 所以其他peer会调用该节点的Put 一定是说明在同步请求
-	// 该节点只需要执行同步来的请求了 不能二次传播
+	// 该节点只需要执行同步来的请求 不能二次传播
 	// 这里做兜底机制 尽管ctx中之前已经设置了from_peer=true 这里再设置一遍
 	fromPeer := ctx.Value("from_peer")
 	if fromPeer == nil {

@@ -19,7 +19,7 @@ type Map struct {
 	mu            sync.Mutex
 	config        *Config          // 配置信息
 	hashList      []int            // 哈希环 存储虚拟节点的哈希值
-	hashMap       map[int]string   // 虚拟节点的哈希值到节点的映射
+	hashMap       map[int]string   // 虚拟节点的哈希值到真实节点的映射
 	nodeReplicas  map[string]int   // 节点到虚拟节点数量的映射
 	nodeCounts    map[string]int64 // 节点负载统计 每个节点请求了多少次
 	totalRequests int64            // 总请求数
